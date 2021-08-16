@@ -1,0 +1,83 @@
+version: "3"
+services:
+  cdb1:
+    container_name: cdb1
+    image: cockroachdb/cockroach:v21.1.7
+    command: start --insecure --locality=region=localdc,cluster=dev1 --join=cdb1,cdb2,cdb3
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+    volumes:
+      - ./cdb_data/cdb1:/cockroach/cockroach-data
+    networks:
+      dev_net:
+        aliases:
+          - cdb1
+
+  db-init:
+    image: cockroachdb/cockroach:v21.1.7
+    networks:
+      - dev_net
+    volumes:
+      - ./cdb_data/cdb_init:/cockroach/cockroach-data
+    entrypoint: "sh"
+    command: -c " if ! [ -e '/cockroach/cockroach-data/init' ]; then /cockroach/cockroach init --insecure --host=cdb1;  fi  && touch  /cockroach/cockroach-data/init "
+    depends_on:
+      - cdb1
+
+
+  cdb2:
+    container_name: cdb2
+    image: cockroachdb/cockroach:v21.1.7
+    command: start --insecure --locality=region=localdc,cluster=dev1 --join=cdb1,cdb2,cdb3
+    volumes:
+      - ./cdb_data/cdb2:/cockroach/cockroach-data
+    depends_on:
+      - db-init
+    networks:
+      dev_net:
+        aliases:
+          - cdb2
+
+  cdb3:
+    container_name: cdb3
+    image: cockroachdb/cockroach:v21.1.7
+    command: start --insecure --locality=region=localdc,cluster=dev1 --join=cdb1,cdb2,cdb3
+    volumes:
+      - ./cdb_data/cdb3:/cockroach/cockroach-data
+    depends_on:
+      - db-init
+    networks:
+      dev_net:
+        aliases:
+          - cdb3
+
+
+  db-cfg:
+    image: cockroachdb/cockroach:v21.1.7
+    networks:
+      - dev_net
+    volumes:
+      - ./cdb_sql/init.sql:/init.sql
+    entrypoint: "sh"
+    command: -c "sleep 30; /cockroach/cockroach sql --insecure --host cdb1 < /init.sql"
+    depends_on:
+      - cdb1
+  
+  
+  db-web:
+      container_name: pgweb
+      restart: always
+      image: sosedoff/pgweb
+      networks:
+        - dev_net
+      ports: 
+        - "8081:8081"  
+      environment:
+        - DATABASE_URL=postgres://root@cdb1:26257/defaultdb?sslmode=disable
+      depends_on:
+        - db-cfg
+    
+networks:
+  dev_net:
+    driver: bridge 
